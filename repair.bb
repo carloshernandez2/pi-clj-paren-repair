@@ -2,13 +2,17 @@
 ;; clj-paren-repair — delimiter detection & repair for Clojure(ClojureScript) source.
 ;;
 ;; Reads code from stdin, fixes unbalanced delimiters via parinfer-rust,
-;; writes result to stdout.
+;; then formats with cljfmt, writes result to stdout.
 ;; Exit 0 = success (content may be unchanged), exit 2 = internal error.
 ;;
 ;; edamame is bundled with babashka for delimiter detection.
 
+(babashka.deps/add-deps '{:deps {dev.weavejester/cljfmt {:mvn/version "0.15.5"}}})
+
 (ns repair
   (:require [edamame.core :as e]
+            [cljfmt.core :as cljfmt]
+            [cljfmt.config :as cfg]
             [clojure.java.shell :as shell]))
 
 ;; ── delimiter detection ──────────────────────────────────────────────
@@ -50,11 +54,35 @@
       (catch Exception _
         nil))))
 
+;; ── formatting ───────────────────────────────────────────────────────
+
+(defn- load-cljfmt-config
+  "Load cljfmt config from the directory of `file-path`.
+   Falls back to default config on any error."
+  [file-path]
+  (try
+    (when file-path
+      (cfg/load-config (.. file-path java.io.File. getParent)))
+    (catch Exception _
+      nil)))
+
+(defn- format-code
+  "Run cljfmt on `s` with config from `file-path`.
+   Returns formatted string, or original on failure."
+  [s file-path]
+  (try
+    (let [config (load-cljfmt-config file-path)]
+      (cljfmt/reformat-string s config))
+    (catch Exception _
+      s)))
+
 ;; ── main ─────────────────────────────────────────────────────────────
 
 (try
-  (let [input (slurp *in*)
-        output (or (fix-delimiters input) input)]
+  (let [file-path (System/getenv "CLJ_FILE_PATH")
+        input (slurp *in*)
+        fixed (or (fix-delimiters input) input)
+        output (format-code fixed file-path)]
     (print output)
     (flush)
     (System/exit 0))

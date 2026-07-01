@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 // ── paths ────────────────────────────────────────────────────────────
@@ -32,13 +32,14 @@ function isClojureFile(path: string): boolean {
 
 /**
  * Spawn `bb repair.bb`, pipe `input` through stdin, return stdout.
+ * Passes `filePath` as `CLJ_FILE_PATH` so cljfmt loads user config.
  * Throws on non-zero exit or spawn failure.
  */
-function repair(input: string): Promise<string> {
+function repair(input: string, filePath?: string): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const child = spawn("bb", [REPAIR_BB], {
-			env: { ...process.env, BABASHKA_VERSION: "1.12.218" },
-		});
+		const env: Record<string, string> = { ...process.env, BABASHKA_VERSION: "1.12.218" };
+		if (filePath) env.CLJ_FILE_PATH = filePath;
+		const child = spawn("bb", [REPAIR_BB], { env });
 
 		let stdout = "";
 		child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
@@ -101,13 +102,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		// ── write ───────────────────────────────────────────────────
 		if (event.toolName === "write") {
-			const input = event.input as { file_path?: string; path?: string; content?: string };
-			const filePath = input.file_path ?? input.path;
+			const input = event.input as { path?: string; content?: string };
+			const filePath = input.path;
 			if (!filePath || !isClojureFile(filePath)) return;
 
 			const content = input.content ?? "";
+			const absPath = resolve(ctx.cwd, filePath);
 			try {
-				const repaired = await repair(content);
+				const repaired = await repair(content, absPath);
 				if (repaired !== content) {
 					ctx.ui.notify("clj-paren-repair: fixed delimiters", "info");
 				}
@@ -124,8 +126,8 @@ export default function (pi: ExtensionAPI) {
 
 		// ── edit ────────────────────────────────────────────────────
 		if (event.toolName === "edit") {
-			const input = event.input as { file_path?: string; path?: string };
-			const filePath = input.file_path ?? input.path;
+			const input = event.input as { path?: string };
+			const filePath = input.path;
 			if (!filePath || !isClojureFile(filePath)) return;
 
 			const absPath = resolve(ctx.cwd, filePath);
@@ -146,8 +148,8 @@ export default function (pi: ExtensionAPI) {
 		const backup = backups.get(event.toolCallId);
 		if (!backup) return;
 
-		const input = event.input as { file_path?: string; path?: string };
-		const filePath = input.file_path ?? input.path;
+		const input = event.input as { path?: string };
+		const filePath = input.path;
 		if (!filePath || !isClojureFile(filePath)) {
 			await cleanup(backup);
 			backups.delete(event.toolCallId);
@@ -158,7 +160,7 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const fileContent = await readFile(absPath, "utf-8");
-			const repaired = await repair(fileContent);
+			const repaired = await repair(fileContent, absPath);
 
 			if (repaired !== fileContent) {
 				await writeFile(absPath, repaired);

@@ -4,15 +4,19 @@ Auto-fixes unbalanced delimiters in Clojure / ClojureScript files edited by the 
 
 ## What it does
 
-LLMs frequently produce mismatched `()`, `[]`, `{}` when editing Clojure source. This extension intercepts `write` and `edit` tool calls **before** they hit disk, pipes the content through [parinfer-rust](https://github.com/eraserhd/parinfer-rust), and:
+LLMs frequently produce mismatched `()`, `[]`, `{}` when editing Clojure source. This extension intercepts `write` and `edit` tool calls, pipes the content through [parinfer-rust](https://github.com/eraserhd/parinfer-rust) for delimiter repair, and then formats with [cljfmt](https://github.com/weavejester/cljfmt), and:
 
 | Scenario | Action |
 |---|---|
-| Delimiters balanced | Pass through, zero overhead |
-| Delimiters broken, fixable | Auto-repair, mutate tool input in place |
+| Delimiters balanced | Format with cljfmt, pass through |
+| Delimiters broken, fixable | Auto-repair via parinfer, then format, mutate tool input in place |
 | Delimiters broken, unfixable | **Block** the write / **restore** the edit from backup |
 
-Inspired by [bhauman/clojure-mcp-light](https://github.com/bhauman/clojure-mcp-light/tree/main) — same edamame + parinfer stack, adapted as a pi extension.
+Inspired by [bhauman/clojure-mcp-light](https://github.com/bhauman/clojure-mcp-light/tree/main) — same edamame + parinfer + cljfmt stack, adapted as a pi extension.
+
+### cljfmt Integration
+
+Every Clojure file processed by this extension is formatted with cljfmt. The user's `.cljfmt.edn` config is loaded from the file's directory (searching upward), so project-local formatting rules are respected automatically.
 
 ## Requirements
 
@@ -57,6 +61,7 @@ A standalone Babashka script:
 1. Parses input with **edamame** (bundled with bb) using full Clojure reader features (`:all true`, reader conditionals, data readers, etc.)
 2. If edamame reports a delimiter error, pipes the text through `parinfer-rust --mode indent --language clojure`
 3. Verifies the repaired output is clean; returns original content if no error or repair failed
+4. Formats the output with **cljfmt**, loading `.cljfmt.edn` from the file's directory via the `CLJ_FILE_PATH` env var
 
 ### `index.ts`
 
