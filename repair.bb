@@ -7,8 +7,6 @@
 ;;
 ;; edamame is bundled with babashka for delimiter detection.
 
-(babashka.deps/add-deps '{:deps {dev.weavejester/cljfmt {:mvn/version "0.15.5"}}})
-
 (ns repair
   (:require [edamame.core :as e]
             [cljfmt.core :as cljfmt]
